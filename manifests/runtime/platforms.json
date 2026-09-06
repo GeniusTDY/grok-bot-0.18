@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "product": "Grok Bot",
+  "upstreamVersion": "0.18.0",
+  "platforms": {
+    "win32-x64": {
+      "platform": "win32",
+      "architecture": "x64",
+      "carrier": "nsis",
+      "archivePath": "research-archives/original/0.18.0/windows-x64/Grok_Bot_0.18.0_Setup.exe",
+      "archiveBytes": 125825552,
+      "archiveSha256": "464079a15ef5fa8b61ccea8fffcc78f63cfcf6df65fb0ad5e725d8b95f7e437e",
+      "executable": "Grok Bot.exe",
+      "resources": "resources",
+      "appAsar": "resources/app.asar",
+      "appAsarUnpacked": "resources/app.asar.unpacked",
+      "appAsarSha256": "38e85c0e5042c0257db7925e1e55709d6d155d90d92fe26ad654127d509766e0",
+      "extraction": "7zip-no-execute",
+      "extractor": {
+        "package": "7zip-bin",
+        "version": "5.2.0",
+        "win32X64ExecutableSha256": "b0cfdeaf429f5cc53f85123dd8f5a5feb92c19d31aa34df257edf9a26be05f95"
+      }
+    }
+  }
+}

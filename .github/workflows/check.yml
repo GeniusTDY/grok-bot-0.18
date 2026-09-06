@@ -1,0 +1,85 @@
+name: repository checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Install the locked dependency graph
+        run: npm ci --no-audit --no-fund
+      - name: Run source and publication checks
+        run: npm run check
+      - name: Build the editable frontend
+        run: npm run frontend:build
+      - name: Verify a fresh clean-history export is lossless
+        run: npm run publication:check
+
+  windows-x64-portable:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Hydrate only the pinned Windows carrier
+        shell: pwsh
+        run: git lfs pull --include="research-archives/original/0.18.0/windows-x64/Grok_Bot_0.18.0_Setup.exe" --exclude=""
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Use the fake-Docker harness SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 8.0.x
+      - name: Install the locked dependency graph
+        run: npm ci --no-audit --no-fund
+      - name: Verify Windows source and publication boundaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          Set-StrictMode -Version Latest
+          npm run typecheck
+          npm run source:typecheck
+          npm test
+          npm run publication:check
+      - name: Bootstrap without executing the NSIS carrier
+        run: npm run bootstrap:windows
+      - name: Build and verify the local unsigned portable directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          Set-StrictMode -Version Latest
+          npm run package:windows
+          npm run verify:windows
+      - name: Verify login-free Proxy Gateway workspace and graceful quit
+        run: npm run smoke:windows
+      - name: Preserve redacted Windows smoke diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-pr-smoke-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: reports/windows-smoke-failure-*
+          if-no-files-found: ignore
+          include-hidden-files: false
+          retention-days: 7

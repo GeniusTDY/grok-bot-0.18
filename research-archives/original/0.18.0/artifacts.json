@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "product": "Grok Bot",
+  "version": "0.18.0",
+  "artifacts": [
+    {
+      "platform": "darwin",
+      "architecture": "arm64",
+      "path": "macos-arm64/Grok_Bot_0.18.0.dmg",
+      "bytes": 155793020,
+      "sha256": "a253ccd8aab01e083f9812a0264354c5034d8ba7f0610bbb557e82ae77d203eb",
+      "sourceUrl": "https://downloads.cursor.com/grokbot/stable/darwin-arm64/0.18.0/Grok_Bot_0.18.0.dmg"
+    },
+    {
+      "platform": "win32",
+      "architecture": "x64",
+      "path": "windows-x64/Grok_Bot_0.18.0_Setup.exe",
+      "bytes": 125825552,
+      "sha256": "464079a15ef5fa8b61ccea8fffcc78f63cfcf6df65fb0ad5e725d8b95f7e437e",
+      "sourceUrl": "https://downloads.cursor.com/grokbot/stable/win32-x64/0.18.0/Grok_Bot_0.18.0_Setup.exe"
+    }
+  ]
+}

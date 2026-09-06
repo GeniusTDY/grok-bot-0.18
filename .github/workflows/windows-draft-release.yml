@@ -1,0 +1,395 @@
+name: Windows push-access-visible draft release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .gitattributes
+      - .github/workflows/**
+      - .gitignore
+      - .node-version
+      - package.json
+      - package-lock.json
+      - README.md
+      - docs/**
+      - frontend/**
+      - manifests/**
+      - patches/**
+      - research-archives/original/0.18.0/**
+      - scripts/**
+      - source/**
+      - src/app/**
+      - tests/**
+
+env:
+  RELEASE_VERSION: 0.18.0-reconstructed.3
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-push-access-visible-draft-release
+  cancel-in-progress: false
+
+jobs:
+  build-and-smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out the exact main commit without hydrating every carrier
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Hydrate only the pinned Windows carrier
+        shell: pwsh
+        run: git lfs pull --include="research-archives/original/0.18.0/windows-x64/Grok_Bot_0.18.0_Setup.exe" --exclude=""
+      - name: Use the repository-pinned Node.js release
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Use the fake-Docker harness SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 8.0.x
+      - name: Install and verify the reviewed source tree
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          Set-StrictMode -Version Latest
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run source:typecheck
+          npm test
+          npm run publication:check
+      - name: Verify the immutable local Docker image provenance
+        shell: pwsh
+        run: npm run docker:image:verify
+      - name: Build and launch the Windows x64 portable directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          Set-StrictMode -Version Latest
+          npm run bootstrap:windows
+          npm run package:windows
+          npm run verify:windows
+          npm run smoke:windows
+      - name: Preserve redacted Windows smoke diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-smoke-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: reports/windows-smoke-failure-*
+          if-no-files-found: ignore
+          include-hidden-files: false
+          retention-days: 7
+      - name: Create the push-access-visible draft release bundle
+        id: bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          Set-StrictMode -Version Latest
+          $packageVersion = (Get-Content -LiteralPath (Join-Path $PWD 'package.json') -Raw | ConvertFrom-Json).version
+          if ($packageVersion -ne $env:RELEASE_VERSION) {
+            throw "Release workflow version $($env:RELEASE_VERSION) does not match package version $packageVersion."
+          }
+          $assetName = "Grok-Bot-$($env:RELEASE_VERSION)-windows-x64-portable-unsigned.zip"
+          $portable = Join-Path $PWD 'dist/Grok Bot 0.18 Reconstructed-win32-x64'
+          $releaseDirectory = Join-Path $PWD '.release/windows-x64'
+          $zip = Join-Path $releaseDirectory $assetName
+          node scripts/create-windows-release-bundle.mjs --app $portable --release-dir $releaseDirectory --expected-commit $env:GITHUB_SHA
+          $roundTrip = Join-Path $env:RUNNER_TEMP 'grok-bot-release-roundtrip'
+          Remove-Item -LiteralPath $roundTrip -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $roundTrip
+          $roundTripPortable = Join-Path $roundTrip 'Grok Bot 0.18 Reconstructed-win32-x64'
+          node scripts/verify-windows.mjs --app $roundTripPortable
+          node scripts/smoke-windows.mjs --app $roundTripPortable
+          @'
+          # Grok Bot 0.18 Reconstructed 3 — Windows x64 Portable (Unsigned Push-Access-Visible Draft)
+
+          This is an unpublished GitHub draft visible only to users with push access, not a
+          public release. The asset is an unofficial, unsigned reconstruction and is not
+          affiliated with Anysphere, Cursor, or xAI.
+
+          The workflow verified the pinned installer, ASAR, and Docker image provenance,
+          ran all source tests, and built on Windows x64. From a fresh signed-out profile
+          it saved an OS-encrypted Proxy Gateway key, authenticated /v1/models, enforced the
+          model and Docker blockers, completed authenticated coordinator resync, entered
+          the local workspace without signing in, revoked the short-lived key lease during
+          graceful quit, relaunched the same profile, and repeated the package smoke after
+          a ZIP round trip.
+
+          CI uses a strict fake-Docker command contract and authenticated loopback gateway;
+          it does not pretend to run the Linux host daemon. Source integration tests cover
+          the production Proxy Gateway SSE tool call, deferred Browser screenshot result,
+          structured image follow-up, and final model response. You must still validate the
+          destination PC's Docker Desktop, Tailscale peer, live Proxy Gateway model, and native
+          shell/file/browser/computer processes.
+
+          `sbom.cdx.json` is an artifact-attributed production-dependency SBOM generated
+          with npm `--omit=dev`. Its root is normalized as the reconstructed Windows
+          application, it records the portable ZIP SHA-256, and Electron 42.1.0 is added as
+          the packaged framework. It is not a complete inventory of every native or
+          recovered upstream byte.
+
+          Use Windows 10/11 x64, Docker Desktop, Tailscale, and the current stable
+          OpenAI-compatible server release (v0.5.35 when reviewed). The reviewed remote API root is
+          http://100.112.10.8:20128/v1; enable the explicit Tailscale HTTP option and use a
+          dedicated proxy/client key. Extract the ZIP, run `Grok Bot 0.18 Reconstructed.exe`,
+          choose Configure Proxy Gateway, then use Save & continue without sign-in. Windows
+          SmartScreen may warn because the reconstructed
+          distribution is not code-signed. Do not publish this draft without completing the
+          repository's independent rights, trademark, third-party license, and signing review.
+          '@ | Set-Content -LiteralPath (Join-Path $releaseDirectory 'RELEASE_NOTES.md') -Encoding utf8NoBOM
+          "asset=$zip" >> $env:GITHUB_OUTPUT
+      - name: Attest the exact portable ZIP
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: .release/windows-x64/Grok-Bot-${{ env.RELEASE_VERSION }}-windows-x64-portable-unsigned.zip
+      - name: Recheck the ZIP checksum before draft mutation
+        shell: bash
+        working-directory: .release/windows-x64
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Create or safely resume the workflow-enforced append-only exact-resume unpublished draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: v${{ env.RELEASE_VERSION }}
+          RELEASE_TITLE: Grok Bot 0.18 Reconstructed 3 — Windows x64 Portable (Unsigned Push-Access-Visible Draft)
+        run: |
+          set -euo pipefail
+          assets_root=.release/windows-x64
+          assets=(
+            "$assets_root/Grok-Bot-${RELEASE_VERSION}-windows-x64-portable-unsigned.zip"
+            "$assets_root/SHA256SUMS.txt"
+            "$assets_root/release-manifest.json"
+            "$assets_root/sbom.cdx.json"
+          )
+
+          api_json_or_404() {
+            local endpoint="$1"
+            local output="$2"
+            local error_file="$3"
+            if gh api "$endpoint" >"$output" 2>"$error_file"; then
+              return 0
+            fi
+            if grep -q '(HTTP 404)' "$error_file"; then
+              return 1
+            fi
+            cat "$error_file" >&2
+            return 2
+          }
+
+          load_release_by_tag() {
+            local output="$1"
+            local matches="$work/release-matches.json"
+            if ! gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[]' \
+              | jq -s --arg tag "$RELEASE_TAG" '[.[] | select(.tag_name == $tag)]' >"$matches"; then
+              return 2
+            fi
+            local count
+            count="$(jq 'length' "$matches")"
+            if [[ "$count" == 0 ]]; then
+              return 1
+            fi
+            if [[ "$count" != 1 ]]; then
+              echo "Refusing to continue because multiple releases use tag: $RELEASE_TAG" >&2
+              return 2
+            fi
+            jq '.[0]' "$matches" >"$output"
+          }
+
+          upload_release_asset() {
+            local asset="$1"
+            local name
+            local release_id
+            local encoded_name
+            name="$(basename "$asset")"
+            release_id="$(jq -er '.id | select(type == "number")' "$release_json")"
+            encoded_name="$(jq -rn --arg name "$name" '$name | @uri')"
+            gh api --method POST \
+              -H 'Content-Type: application/octet-stream' \
+              --input "$asset" \
+              "https://uploads.github.com/repos/$GH_REPO/releases/$release_id/assets?name=$encoded_name" >/dev/null
+          }
+
+          assert_release_identity() {
+            if ! jq -e \
+              --arg tag "$RELEASE_TAG" \
+              --arg title "$RELEASE_TITLE" \
+              --arg commit "$GITHUB_SHA" \
+              '.tag_name == $tag and .name == $title and .draft == true and .prerelease == true and .target_commitish == $commit' \
+              "$release_json" >/dev/null; then
+              echo "Refusing to mutate a release whose tag, title, state, or target commit differs: $RELEASE_TAG" >&2
+              return 1
+            fi
+            node - "$release_json" "$assets_root/RELEASE_NOTES.md" <<'NODE'
+          const fs = require("node:fs");
+          const release = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const expected = fs.readFileSync(process.argv[3], "utf8");
+          const normalize = (value) => value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n+$/, "");
+          if (normalize(release.body || "") !== normalize(expected)) {
+            process.stderr.write("Refusing to mutate a release whose notes differ from the reviewed bundle.\n");
+            process.exit(1);
+          }
+          NODE
+          }
+
+          assert_tag_ref_if_present() {
+            set +e
+            api_json_or_404 "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" "$ref_json" "$ref_error"
+            ref_result=$?
+            set -e
+            if (( ref_result > 1 )); then
+              return 1
+            fi
+            if (( ref_result == 0 )) && ! jq -e --arg commit "$GITHUB_SHA" '.object.type == "commit" and .object.sha == $commit' "$ref_json" >/dev/null; then
+              echo "Refusing to reuse a tag that does not point directly at the exact workflow commit: $RELEASE_TAG" >&2
+              return 1
+            fi
+          }
+
+          work="$(mktemp -d)"
+          trap 'rm -rf -- "$work"' EXIT
+          release_json="$work/release.json"
+          ref_json="$work/ref.json"
+          ref_error="$work/ref.error"
+
+          set +e
+          load_release_by_tag "$release_json"
+          release_result=$?
+          api_json_or_404 "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" "$ref_json" "$ref_error"
+          ref_result=$?
+          set -e
+          if (( release_result > 1 || ref_result > 1 )); then
+            exit 1
+          fi
+
+          expected_names="$work/expected-assets.txt"
+          for asset in "${assets[@]}"; do basename "$asset"; done | LC_ALL=C sort >"$expected_names"
+
+          if (( release_result == 1 )); then
+            if (( ref_result == 0 )); then
+              echo "Refusing to reuse an existing tag without the expected draft: $RELEASE_TAG" >&2
+              exit 1
+            fi
+            gh release create "$RELEASE_TAG" "${assets[@]}" --target "$GITHUB_SHA" --draft --prerelease --latest=false --title "$RELEASE_TITLE" --notes-file "$assets_root/RELEASE_NOTES.md"
+            load_release_by_tag "$release_json"
+          else
+            assert_release_identity
+            assert_tag_ref_if_present
+
+            existing_names="$work/existing-assets.txt"
+            jq -r '.assets[].name' "$release_json" | LC_ALL=C sort >"$existing_names"
+            if comm -13 "$expected_names" "$existing_names" | grep -q .; then
+              echo "Refusing to continue because the draft contains unexpected assets:" >&2
+              comm -13 "$expected_names" "$existing_names" >&2
+              exit 1
+            fi
+
+            # Preflight every existing expected asset before making any draft
+            # mutation. A later mismatch can never follow an earlier upload.
+            for asset in "${assets[@]}"; do
+              name="$(basename "$asset")"
+              count="$(jq --arg name "$name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
+              if [[ "$count" == 0 ]]; then
+                continue
+              fi
+              if [[ "$count" != 1 ]]; then
+                echo "Refusing to continue because the draft has duplicate assets named: $name" >&2
+                exit 1
+              fi
+              download="$work/download-$name"
+              asset_id="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .id' "$release_json")"
+              asset_state="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .state' "$release_json")"
+              asset_size="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .size' "$release_json")"
+              if [[ "$asset_state" == starter && "$asset_size" == 0 ]]; then
+                # A failed upload may leave GitHub's empty starter. Record it
+                # during preflight, but do not mutate it until every other
+                # existing asset has passed its complete byte comparison.
+                continue
+              fi
+              if [[ "$asset_state" != uploaded || "$asset_size" == 0 ]]; then
+                echo "Refusing to replace a nonempty or unknown-state release asset: $name ($asset_state, $asset_size bytes)" >&2
+                exit 1
+              fi
+              gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$asset_id" >"$download"
+              if ! cmp -s -- "$asset" "$download"; then
+                echo "Refusing to overwrite a different existing release asset: $name" >&2
+                exit 1
+              fi
+            done
+
+            # Only after the complete byte preflight may missing assets be
+            # appended or an empty GitHub starter be retired. Nonempty
+            # existing assets are never deleted or overwritten.
+            for asset in "${assets[@]}"; do
+              name="$(basename "$asset")"
+              count="$(jq --arg name "$name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
+              if [[ "$count" == 0 ]]; then
+                upload_release_asset "$asset"
+              else
+                asset_id="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .id' "$release_json")"
+                asset_state="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .state' "$release_json")"
+                asset_size="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .size' "$release_json")"
+                if [[ "$asset_state" == starter && "$asset_size" == 0 ]]; then
+                  gh api --method DELETE "repos/$GH_REPO/releases/assets/$asset_id"
+                  upload_release_asset "$asset"
+                fi
+              fi
+            done
+          fi
+
+          load_release_by_tag "$release_json"
+          assert_release_identity
+          assert_tag_ref_if_present
+          jq -r '.assets[].name' "$release_json" | LC_ALL=C sort >"$work/final-assets.txt"
+          if ! cmp -s -- "$expected_names" "$work/final-assets.txt"; then
+            echo "Draft release does not contain exactly the expected asset set." >&2
+            exit 1
+          fi
+          for asset in "${assets[@]}"; do
+            name="$(basename "$asset")"
+            count="$(jq --arg name "$name" '[.assets[] | select(.name == $name)] | length' "$release_json")"
+            state="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .state' "$release_json")"
+            remote_size="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .size' "$release_json")"
+            local_size="$(stat --format='%s' "$asset")"
+            if [[ "$count" != 1 || "$state" != uploaded || "$remote_size" != "$local_size" ]]; then
+              echo "Release asset is not one complete uploaded copy of the reviewed file: $name" >&2
+              exit 1
+            fi
+            remote_digest="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | (.digest // "")' "$release_json")"
+            local_digest="sha256:$(sha256sum "$asset" | cut -d ' ' -f 1)"
+            if [[ -n "$remote_digest" ]]; then
+              if [[ "$remote_digest" != "$local_digest" ]]; then
+                echo "Release asset digest differs from the reviewed file: $name" >&2
+                exit 1
+              fi
+            else
+              asset_id="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .id' "$release_json")"
+              download="$work/final-download-$name"
+              gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$asset_id" >"$download"
+              if ! cmp -s -- "$asset" "$download"; then
+                echo "Release asset bytes differ from the reviewed file: $name" >&2
+                exit 1
+              fi
+            fi
+          done
+      - name: Best-effort cleanup of local release files
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath '.release/windows-x64' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'grok-bot-release-roundtrip') -Recurse -Force -ErrorAction SilentlyContinue

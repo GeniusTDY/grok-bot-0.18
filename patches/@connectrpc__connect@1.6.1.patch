@@ -1,0 +1,28 @@
+diff --git a/dist/cjs/protocol-connect/transport.js b/dist/cjs/protocol-connect/transport.js
+index 293e2940fb7f5506890b1fbbf3d8496ce1d12ed2..e9734e764a46858892f57528fddcf554cf69fb89 100644
+--- a/dist/cjs/protocol-connect/transport.js
++++ b/dist/cjs/protocol-connect/transport.js
+@@ -98,6 +98,9 @@ function createTransport(opt) {
+                     }
+                     else {
+                         body = (0, async_iterable_js_1.createAsyncIterable)([requestBody]);
++                        if (requestBody.length === 0) {
++                            req.header.set("Content-Length", "0");
++                        }
+                     }
+                     const universalResponse = await opt.httpClient({
+                         url: req.url,
+diff --git a/dist/esm/protocol-connect/transport.js b/dist/esm/protocol-connect/transport.js
+index 4bff523dcf3b185e3f7d71e77c2321509cc22ab1..3777aa86f05d2ad04e5468d8f3eea492655ff1c2 100644
+--- a/dist/esm/protocol-connect/transport.js
++++ b/dist/esm/protocol-connect/transport.js
+@@ -95,6 +95,9 @@ export function createTransport(opt) {
+                     }
+                     else {
+                         body = createAsyncIterable([requestBody]);
++                        if (requestBody.length === 0) {
++                            req.header.set("Content-Length", "0");
++                        }
+                     }
+                     const universalResponse = await opt.httpClient({
+                         url: req.url,
