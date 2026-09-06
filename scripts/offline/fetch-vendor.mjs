@@ -12,6 +12,11 @@
 // Options:
 //   --offline-root <path>   default: <repo>/offline
 //   --node-version <v>      default: 26.5.0 (must satisfy engines)
+//   --node-dist-base <base> override the Node distribution base URL; both the
+//                           archive and SHASUMS256.txt are read from it. Point it
+//                           at a GitHub release dir (e.g.
+//                           .../releases/download/v0.18.0) when nodejs.org is not
+//                           reachable from the preparation machine.
 //   --install               (with `modules`/`stage`) build node_modules via the
 //                           vendored Node instead of requiring an existing one.
 //                           The preparation machine then needs no system Node:
@@ -37,10 +42,11 @@ const repoRoot = path.resolve(import.meta.dirname, "..", "..");
 const NODE_SHASUMS = "SHASUMS256.txt";
 
 function parseFlags(argv) {
-  const flags = { offlineRoot: path.join(repoRoot, "offline"), nodeVersion: vendorNodeVersion(), install: false };
+  const flags = { offlineRoot: path.join(repoRoot, "offline"), nodeVersion: vendorNodeVersion(), nodeDistBase: null, install: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--offline-root") flags.offlineRoot = path.resolve(argv[++i]);
     else if (argv[i] === "--node-version") flags.nodeVersion = argv[++i];
+    else if (argv[i] === "--node-dist-base") flags.nodeDistBase = argv[++i];
     else if (argv[i] === "--install") flags.install = true;
   }
   return flags;
@@ -70,7 +76,7 @@ async function unzip(zipPath, destination) {
   await promisify(execFile)("unzip", ["-q", "-o", zipPath, "-d", destination]);
 }
 
-async function stagedVendorNode({ offlineRoot, nodeVersion }) {
+async function stagedVendorNode({ offlineRoot, nodeVersion, nodeDistBase }) {
   const platform = process.platform, arch = process.arch;
   if (!hasVendorNodeAsset(platform, arch)) {
     throw new Error(`No vendorable Node asset definition for ${platform}/${arch}`);
@@ -81,13 +87,14 @@ async function stagedVendorNode({ offlineRoot, nodeVersion }) {
   await mkdir(stagingRoot, { recursive: true });
   const basename = nodeArchiveBasename(platform, arch, nodeVersion);
   const zippedPath = path.join(stagingRoot, `${basename}.zip`);
+  const distBase = nodeDistBase ?? `${NODEJS_DIST}/v${nodeVersion}`;
 
-  const distUrl = `${NODEJS_DIST}/v${nodeVersion}/${basename}.zip`;
+  const distUrl = `${distBase}/${basename}.zip`;
   process.stderr.write(`downloading ${distUrl}\n`);
   const zipBytes = await downloadTo(distUrl, zippedPath);
 
   const shasumsPath = path.join(stagingRoot, NODE_SHASUMS);
-  const shasumsBuffer = await downloadTo(`${NODEJS_DIST}/v${nodeVersion}/${NODE_SHASUMS}`, shasumsPath);
+  const shasumsBuffer = await downloadTo(`${distBase}/${NODE_SHASUMS}`, shasumsPath);
   const shasums = (await readFile(shasumsPath, "utf8"));
   const expected = nodeShasumFor(shasums, `${basename}.zip`);
   if (!expected) throw new Error(`No shasum entry for ${basename}.zip`);
@@ -199,7 +206,7 @@ const COMMANDS = { node: stagedVendorNode, modules: stagedNodeModules, nodedeps:
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
   if (command === "--help" || command === "-h" || (command !== "node" && command !== "modules" && command !== "nodedeps" && command !== "stage")) {
-    process.stderr.write("usage: node scripts/offline/fetch-vendor.mjs <node|modules|nodedeps|stage> [--offline-root <path>] [--node-version <v>] [--install]\n");
+    process.stderr.write("usage: node scripts/offline/fetch-vendor.mjs <node|modules|nodedeps|stage> [--offline-root <path>] [--node-version <v>] [--node-dist-base <base>] [--install]\n");
     process.exitCode = 0;
     return;
   }
